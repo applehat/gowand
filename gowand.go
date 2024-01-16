@@ -11,6 +11,7 @@ import (
 type MagiWand struct {
 	IRDevice string
 	wandCast chan WandCast
+	verbose  bool
 }
 
 type WandCast struct {
@@ -24,7 +25,22 @@ func Wand() *MagiWand {
 	return &MagiWand{
 		IRDevice: "/dev/lirc0",
 		wandCast: make(chan WandCast),
+		verbose:  false,
 	}
+}
+
+func (w *MagiWand) log(str ...string) {
+	if w.verbose {
+		fmt.Println("LOGGGGGG")
+		for _, s := range str {
+			fmt.Printf("[GoWand] %s\n", s)
+		}
+	}
+}
+
+func (w *MagiWand) Verbose() {
+	w.verbose = true
+	w.log("Verbose Logging Enabled")
 }
 
 // SetIRDevice sets the IR device to use
@@ -34,6 +50,7 @@ func (w *MagiWand) SetIRDevice(device string) {
 
 // Start starts the IR listener
 func (w *MagiWand) Start() error {
+	w.log("Starting IR listener")
 	out := make(chan string)
 	command := exec.Command("ir-ctl", "-r", "-d", w.IRDevice)
 	stdout, err := command.StdoutPipe()
@@ -44,6 +61,7 @@ func (w *MagiWand) Start() error {
 	scanner := bufio.NewScanner(stdout)
 	go func() {
 		for scanner.Scan() {
+			fmt.Println(scanner.Text())
 			out <- scanner.Text()
 		}
 		close(out)
@@ -54,6 +72,7 @@ func (w *MagiWand) Start() error {
 	}
 
 	for line := range out {
+		w.log("Reading Line", line)
 		// First, split out the timeout
 		// Example line: +304 -853 +534 -596 +298 -859 +243 -886 +560 -597 +243 -889 +557 -595 +534 -597 +559 -597 +559 -571 +560 -596 +559 # timeout 23266
 		s := strings.Split(line, "# timeout")
@@ -100,6 +119,7 @@ func (w *MagiWand) Start() error {
 		// if binary length is less that pulseandspace / 2 by 1, we need to account for the final positive pulse with no negative
 		// Im not entirely sure if this ever happens, but it's here just in case
 		if len(binary) == len(pulseandspace)/2-1 {
+			w.log("Accounting for final positive pulse with no negative")
 			lastPulse := pulseandspace[len(pulseandspace)-1]
 			if strings.Contains(lastPulse, "+") {
 				pulseS := strings.Split(lastPulse, "-")
@@ -121,6 +141,7 @@ func (w *MagiWand) Start() error {
 			// 32:56 is the motion
 
 			if binary[0:8] != "00000000" {
+				w.log("Invalid binary string:" + binary)
 				// This is not a wand cast. It's something else.
 				continue
 			}
@@ -128,12 +149,18 @@ func (w *MagiWand) Start() error {
 			wandId, _ := binaryToHex(binary[8:32])
 			motionId, _ := binaryToHex(binary[32:56])
 
-			w.wandCast <- WandCast{
+			cast := WandCast{
 				WandID:   wandId,
 				MotionID: motionId,
 				Timeout:  timeout,
 				PulseLen: pulseLen,
 			}
+
+			w.log("Wand Cast Found! Wand:" + wandId + " Motion:" + motionId)
+
+			w.wandCast <- cast
+		} else {
+			w.log("Invalid binary length:" + strconv.Itoa(len(binary)) + " -- " + binary)
 		}
 	}
 	return nil
