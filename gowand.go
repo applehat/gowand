@@ -15,10 +15,10 @@ type MagiWand struct {
 }
 
 type WandCast struct {
-	WandID   string // Hex Wand ID
-	MotionID string // Hex Motion ID
-	Timeout  int    // Timeout from ir-ctl (might be useful for something)
-	PulseLen int    // Length of the pulse (56 or 112 -- Sometimes two "casts" are detected at once, so this might be useful for filtering)
+	WandID    string // Hex Wand ID
+	Magnitude string // Hex Motion ID
+	Checksum  string // Hex Checksum
+	Timeout   int    // Timeout from ir-ctl (might be useful for something)
 }
 
 func Wand() *MagiWand {
@@ -31,7 +31,6 @@ func Wand() *MagiWand {
 
 func (w *MagiWand) log(str ...string) {
 	if w.verbose {
-		fmt.Println("LOGGGGGG")
 		for _, s := range str {
 			fmt.Printf("[GoWand] %s\n", s)
 		}
@@ -61,7 +60,6 @@ func (w *MagiWand) Start() error {
 	scanner := bufio.NewScanner(stdout)
 	go func() {
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
 			out <- scanner.Text()
 		}
 		close(out)
@@ -72,7 +70,7 @@ func (w *MagiWand) Start() error {
 	}
 
 	for line := range out {
-		w.log("Reading Line", line)
+		w.log("Reading Line: " + line)
 		// First, split out the timeout
 		// Example line: +304 -853 +534 -596 +298 -859 +243 -886 +560 -597 +243 -889 +557 -595 +534 -597 +559 -597 +559 -571 +560 -596 +559 # timeout 23266
 		s := strings.Split(line, "# timeout")
@@ -85,8 +83,6 @@ func (w *MagiWand) Start() error {
 		// Next, split out the pulses (So we have + and -)
 		pulseandspace := strings.Split(s[0], " ")
 
-		pulseLen := 0
-
 		binary := ""
 		plus := 0
 		minus := 0
@@ -96,7 +92,6 @@ func (w *MagiWand) Start() error {
 				pulseS := strings.Split(pulse, "+")
 				pulseInt, _ := strconv.Atoi(pulseS[1])
 				plus = pulseInt
-				pulseLen++
 			}
 			if strings.Contains(pulse, "-") {
 				pulseS := strings.Split(pulse, "-")
@@ -116,29 +111,14 @@ func (w *MagiWand) Start() error {
 			}
 		}
 
-		// if binary length is less that pulseandspace / 2 by 1, we need to account for the final positive pulse with no negative
-		// Im not entirely sure if this ever happens, but it's here just in case
-		if len(binary) == len(pulseandspace)/2-1 {
-			w.log("Accounting for final positive pulse with no negative")
-			lastPulse := pulseandspace[len(pulseandspace)-1]
-			if strings.Contains(lastPulse, "+") {
-				pulseS := strings.Split(lastPulse, "-")
-				pulseInt, _ := strconv.Atoi(pulseS[1])
-				// @TODO: Figure out a potentially better way of handling this
-				// 410 was the value that pywand hardcoded, not accounting for duty cycle
-				if pulseInt >= 410 {
-					binary += "1"
-				} else {
-					binary += "0"
-				}
-			}
-		}
+		// Note -- we are technically potentially missing the last pulse, but it's not needed for the wand cast because its all
+		// checksum stuff that we don't care about.
 
 		if len(binary) == 56 || len(binary) == 112 {
 			// we now have the 56 bit binary string (or 112 that we will ignore the second half of)
-			// 0:8 is always zero
-			// 8:32 is the wand
-			// 32:56 is the motion
+			// 0:8 is always zero -- 8 bits
+			// 8:39 is the wand -- 31 Bits
+			// 39:48 is the magnitude -- 9 bits
 
 			if binary[0:8] != "00000000" {
 				w.log("Invalid binary string:" + binary)
@@ -146,17 +126,20 @@ func (w *MagiWand) Start() error {
 				continue
 			}
 
-			wandId, _ := binaryToHex(binary[8:32])
-			motionId, _ := binaryToHex(binary[32:56])
+			wandId, _ := binaryToHex(binary[8:39])
+			magnitude, _ := binaryToHex(binary[39:48])
+			checksum, _ := binaryToHex(binary[48:56])
+
+			// verify checksum
 
 			cast := WandCast{
-				WandID:   wandId,
-				MotionID: motionId,
-				Timeout:  timeout,
-				PulseLen: pulseLen,
+				WandID:    "0x" + wandId,
+				Magnitude: "0x" + magnitude,
+				Checksum:  "0x" + checksum,
+				Timeout:   timeout,
 			}
 
-			w.log("Wand Cast Found! Wand:" + wandId + " Motion:" + motionId)
+			w.log("Wand Cast Found! Wand: " + wandId + " Motion:" + magnitude)
 
 			w.wandCast <- cast
 		} else {
