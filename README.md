@@ -85,16 +85,6 @@ wand.SetDevice("/dev/lirc1")
 wand.Start()
 ```
 
-Additionally, the default configuration for threshhold (for converting pulses to binary) is 410. If you need to change this, you can do so before starting:
-
-```go
-wand := gowand.Wand()
-wand.SetThreshold(500)
-wand.Start()
-```
-
-The default value of `410` was chosen based on testing done by `rveach` in his [pywand](https://gitlab.com/rveach/wand) package. In testing I've also found this value works well, so you probably won't need to modify it.
-
 ## Hardware
 
 I uased a Raspberry Pi running Raspbian for testing, with an 1838 IR receiver connected to GPIO pin 18. 
@@ -107,7 +97,7 @@ dtoverlay=gpio-ir,gpio_pin=18
 
 Then on the Pi, the wiring is:
 
-1886 IR Receiver | Raspberry Pi
+IR Receiver      | Raspberry Pi
 ---------------- | ------------
 GND              | GND
 VCC              | 3.3V

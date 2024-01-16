@@ -9,7 +9,6 @@ func main() {
 	wand := gowand.Wand()
 
 	// You can override the default threshold and IR device if you want / need.
-	//wand.SetThreshold(410)
 	//wand.SetIRDevice("/dev/lirc0")
 
 	// Start the wand listener
